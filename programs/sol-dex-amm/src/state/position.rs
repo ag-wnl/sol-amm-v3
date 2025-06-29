@@ -11,10 +11,8 @@ pub struct PositionInfo {
 impl PositionInfo {
     pub const INIT_SPACE: usize = 8 + 16; //(disc + u128);
 
-    pub fn update(&mut self, liquidity_delta: u128) -> Result<()> {
+    pub fn update(&mut self, liquidity_delta: u128) {
         self.liquidity = self.liquidity.checked_add(liquidity_delta).expect("liquidity overflow");
-        ;
-        Ok(())
     }
 }
 

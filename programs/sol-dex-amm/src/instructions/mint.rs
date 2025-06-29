@@ -1,8 +1,13 @@
 use anchor_lang::prelude::*;
+use anchor_lang::AccountDeserialize;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::state::*;
 use crate::utils::errors::DexError;
 
+/**
+ * Mint - providing liquidity to the pool
+ * we jus following uniswap v2 convention
+ */
 
 #[derive(Accounts)]
 #[instruction(owner: Pubkey, lower_tick: i32, upper_tick: i32)]
@@ -50,17 +55,21 @@ pub struct Mint<'info> {
     )]
     pub position: Account<'info, PositionInfo>,
 
+    /// CHECK: Token account for user's token 0, validated through CPI transfer
     #[account(mut)]
-    pub user_token_0: Account<'info, TokenAccount>,
+    pub user_token_0: AccountInfo<'info>,
     
+    /// CHECK: Token account for user's token 1, validated through CPI transfer
     #[account(mut)]
-    pub user_token_1: Account<'info, TokenAccount>,
+    pub user_token_1: AccountInfo<'info>,
     
+    /// CHECK: Token account for pool's token 0, validated through CPI transfer
     #[account(mut)]
-    pub pool_token_0: Account<'info, TokenAccount>,
+    pub pool_token_0: AccountInfo<'info>,
     
+    /// CHECK: Token account for pool's token 1, validated through CPI transfer
     #[account(mut)]
-    pub pool_token_1: Account<'info, TokenAccount>,
+    pub pool_token_1: AccountInfo<'info>,
     
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -101,9 +110,9 @@ pub fn handler(
         position.owner = owner;
         position.tick_lower = lower_tick;
         position.tick_upper = upper_tick;
-        position.liquidity = amount as u128;
+        position.liquidity = amount;
     } else {
-        // update existing pon
+        // update existing posn
         position.update(amount);
     }
 
@@ -112,8 +121,12 @@ pub fn handler(
     let amount_1 = 150_000_000u64; // 150 USDC (6 decimals, assuming SOL ~$150)
 
     pool.liquidity = pool.liquidity.checked_add(amount).expect("overflow");
-    let balance_0_before = ctx.accounts.pool_token_0.amount;
-    let balance_1_before = ctx.accounts.pool_token_1.amount;
+    
+    let pool_token_0_account = TokenAccount::try_deserialize(&mut ctx.accounts.pool_token_0.data.borrow().as_ref())?;
+    let pool_token_1_account = TokenAccount::try_deserialize(&mut ctx.accounts.pool_token_1.data.borrow().as_ref())?;
+    
+    let balance_0_before = pool_token_0_account.amount;
+    let balance_1_before = pool_token_1_account.amount;
 
     if amount_0 > 0 {
         let cpi_accounts = Transfer {
@@ -137,19 +150,21 @@ pub fn handler(
         token::transfer(cpi_ctx, amount_1)?;
     }
 
-    ctx.accounts.pool_token_0.reload()?;
-    ctx.accounts.pool_token_1.reload()?;
+    // ctx.accounts.pool_token_0.reload()?;
+    // ctx.accounts.pool_token_1.reload()?;
 
     if amount_0 > 0 {
+        let pool_token_0_after = TokenAccount::try_deserialize(&mut ctx.accounts.pool_token_0.data.borrow().as_ref())?;
         require!(
-            ctx.accounts.pool_token_0.amount >= balance_0_before + amount_0,
+            pool_token_0_after.amount >= balance_0_before + amount_0,
             DexError::InsufficientInputAmount
         );
     }
     
     if amount_1 > 0 {
+        let pool_token_1_after = TokenAccount::try_deserialize(&mut ctx.accounts.pool_token_1.data.borrow().as_ref())?;
         require!(
-            ctx.accounts.pool_token_1.amount >= balance_1_before + amount_1,
+            pool_token_1_after.amount >= balance_1_before + amount_1,
             DexError::InsufficientInputAmount
         );
     }
