@@ -8,6 +8,7 @@ import {
   createAccount,
   mintTo,
   getAccount,
+  createAssociatedTokenAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
 
@@ -24,6 +25,9 @@ describe("sol-dex-amm", () => {
   let token1Account: PublicKey;
   let poolPda: PublicKey;
   let poolBump: number;
+  // Add pool token accounts for mint testing
+  let poolToken0Account: PublicKey;
+  let poolToken1Account: PublicKey;
 
   // Test constants (from Uniswap V3 book)
   const MIN_TICK = -887272;
@@ -100,6 +104,8 @@ describe("sol-dex-amm", () => {
       [Buffer.from("pool"), token0Mint.toBuffer(), token1Mint.toBuffer()],
       program.programId
     );
+
+    // Pool token accounts will be created separately for the mint test
   });
 
   describe("Pool Initialization", () => {
@@ -241,6 +247,192 @@ describe("sol-dex-amm", () => {
     it("Should have correct token mint addresses", async () => {
       // Verify tokens are different (as required by Uniswap)
       expect(token0Mint.toString()).to.not.equal(token1Mint.toString());
+    });
+  });
+
+  describe("Mint Liquidity", () => {
+    it("Should mint liquidity successfully", async () => {
+      const payer = (provider.wallet as anchor.Wallet).payer;
+
+      // Create separate pool token accounts for holding liquidity using ATAs
+      const poolToken0Account = await createAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        token0Mint,
+        payer.publicKey
+      );
+
+      const poolToken1Account = await createAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        token1Mint,
+        payer.publicKey
+      );
+
+      // Get initial balances
+      const initialUserToken0 = await getAccount(
+        provider.connection,
+        token0Account
+      );
+      const initialUserToken1 = await getAccount(
+        provider.connection,
+        token1Account
+      );
+      const initialPoolAccount = await program.account.pool.fetch(poolPda);
+
+      console.log(
+        "Initial pool liquidity:",
+        initialPoolAccount.liquidity.toString()
+      );
+      console.log("Initial user token0:", initialUserToken0.amount.toString());
+      console.log("Initial user token1:", initialUserToken1.amount.toString());
+
+      try {
+        const tx = await program.methods
+          .mint(
+            provider.wallet.publicKey, // owner
+            testParams.lowerTick,
+            testParams.upperTick,
+            testParams.liquidity
+          )
+          .accounts({
+            pool: poolPda,
+            userToken0: token0Account,
+            userToken1: token1Account,
+            poolToken0: poolToken0Account,
+            poolToken1: poolToken1Account,
+            payer: provider.wallet.publicKey,
+          })
+          .rpc();
+
+        console.log("✅ Mint liquidity transaction successful:", tx);
+
+        // Verify pool state changes
+        const finalPoolAccount = await program.account.pool.fetch(poolPda);
+        const finalUserToken0 = await getAccount(
+          provider.connection,
+          token0Account
+        );
+        const finalUserToken1 = await getAccount(
+          provider.connection,
+          token1Account
+        );
+        const finalPoolToken0 = await getAccount(
+          provider.connection,
+          poolToken0Account
+        );
+        const finalPoolToken1 = await getAccount(
+          provider.connection,
+          poolToken1Account
+        );
+
+        // Verify liquidity was added to pool
+        expect(finalPoolAccount.liquidity.toString()).to.equal(
+          testParams.liquidity.toString()
+        );
+        console.log(
+          "✅ Pool liquidity updated:",
+          finalPoolAccount.liquidity.toString()
+        );
+
+        // Verify tokens were transferred (hardcoded amounts from mint instruction)
+        const expectedTransfer0 = BigInt(1_000_000_000); // 1 SOL
+        const expectedTransfer1 = BigInt(150_000_000); // 150 USDC
+
+        expect(finalUserToken0.amount).to.equal(
+          initialUserToken0.amount - expectedTransfer0
+        );
+        expect(finalUserToken1.amount).to.equal(
+          initialUserToken1.amount - expectedTransfer1
+        );
+        expect(finalPoolToken0.amount).to.equal(expectedTransfer0);
+        expect(finalPoolToken1.amount).to.equal(expectedTransfer1);
+
+        console.log("✅ Token transfers verified:");
+        console.log(`  Token0 transferred: ${expectedTransfer0.toString()}`);
+        console.log(`  Token1 transferred: ${expectedTransfer1.toString()}`);
+
+        // Try to fetch position account to verify it was created
+        const [positionPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("position"),
+            provider.wallet.publicKey.toBuffer(),
+            Buffer.from(new Int32Array([testParams.lowerTick]).buffer),
+            Buffer.from(new Int32Array([testParams.upperTick]).buffer),
+          ],
+          program.programId
+        );
+
+        const positionAccount = await program.account.positionInfo.fetch(
+          positionPda
+        );
+        expect(positionAccount.owner.toString()).to.equal(
+          provider.wallet.publicKey.toString()
+        );
+        expect(positionAccount.liquidity.toString()).to.equal(
+          testParams.liquidity.toString()
+        );
+        console.log(
+          "✅ Position account created with liquidity:",
+          positionAccount.liquidity.toString()
+        );
+      } catch (error) {
+        console.log("❌ Mint failed:", error.message);
+        if (error.logs) {
+          console.log("Transaction logs:", error.logs);
+        }
+        throw error;
+      }
+    });
+
+    it("Should fail with invalid tick range", async () => {
+      try {
+        await program.methods
+          .mint(
+            provider.wallet.publicKey,
+            testParams.upperTick, // Invalid: upper tick as lower
+            testParams.lowerTick, // Invalid: lower tick as upper
+            testParams.liquidity
+          )
+          .accounts({
+            pool: poolPda,
+            userToken0: token0Account,
+            userToken1: token1Account,
+            poolToken0: token0Account,
+            poolToken1: token1Account,
+            payer: provider.wallet.publicKey,
+          })
+          .rpc();
+
+        expect.fail("Expected transaction to fail with invalid tick range");
+      } catch (error) {
+        console.log("✅ Expected error for invalid tick range:", error.message);
+      }
+    });
+
+    it("Should fail with zero liquidity", async () => {
+      try {
+        await program.methods
+          .mint(
+            provider.wallet.publicKey,
+            testParams.lowerTick,
+            testParams.upperTick,
+            new anchor.BN(0) // Zero liquidity
+          )
+          .accounts({
+            pool: poolPda,
+            userToken0: token0Account,
+            userToken1: token1Account,
+            poolToken0: token0Account,
+            poolToken1: token1Account,
+            payer: provider.wallet.publicKey,
+          })
+          .rpc();
+
+        expect.fail("Expected transaction to fail with zero liquidity");
+      } catch (error) {
+        console.log("✅ Expected error for zero liquidity:", error.message);
+      }
     });
   });
 });
