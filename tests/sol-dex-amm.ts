@@ -8,7 +8,7 @@ import {
   createAccount,
   mintTo,
   getAccount,
-  createAssociatedTokenAccount,
+  getOrCreateAssociatedTokenAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
 
@@ -105,7 +105,25 @@ describe("sol-dex-amm", () => {
       program.programId
     );
 
-    // Pool token accounts will be created separately for the mint test
+    // Create associated token accounts for the pool
+    poolToken0Account = (
+      await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        token0Mint,
+        poolPda,
+        true
+      )
+    ).address;
+    poolToken1Account = (
+      await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        token1Mint,
+        poolPda,
+        true
+      )
+    ).address;
   });
 
   describe("Pool Initialization", () => {
@@ -254,21 +272,6 @@ describe("sol-dex-amm", () => {
     it("Should mint liquidity successfully", async () => {
       const payer = (provider.wallet as anchor.Wallet).payer;
 
-      // Create separate pool token accounts for holding liquidity using ATAs
-      const poolToken0Account = await createAssociatedTokenAccount(
-        provider.connection,
-        payer,
-        token0Mint,
-        payer.publicKey
-      );
-
-      const poolToken1Account = await createAssociatedTokenAccount(
-        provider.connection,
-        payer,
-        token1Mint,
-        payer.publicKey
-      );
-
       // Get initial balances
       const initialUserToken0 = await getAccount(
         provider.connection,
@@ -398,8 +401,8 @@ describe("sol-dex-amm", () => {
             pool: poolPda,
             userToken0: token0Account,
             userToken1: token1Account,
-            poolToken0: token0Account,
-            poolToken1: token1Account,
+            poolToken0: poolToken0Account,
+            poolToken1: poolToken1Account,
             payer: provider.wallet.publicKey,
           })
           .rpc();
@@ -423,8 +426,8 @@ describe("sol-dex-amm", () => {
             pool: poolPda,
             userToken0: token0Account,
             userToken1: token1Account,
-            poolToken0: token0Account,
-            poolToken1: token1Account,
+            poolToken0: poolToken0Account,
+            poolToken1: poolToken1Account,
             payer: provider.wallet.publicKey,
           })
           .rpc();

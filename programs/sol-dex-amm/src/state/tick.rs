@@ -7,7 +7,7 @@ pub struct TickInfo {
 }
 
 impl TickInfo {
-    pub const INIT_SPACE: usize = 8 + 16; //(disc + u128);
+    pub const INIT_SPACE: usize = 8 + 1 + 16; // disc + bool + u128
 
     pub fn update(&mut self, liquidity_delta: u128) {
         let liquidity_before =  self.liquidity;

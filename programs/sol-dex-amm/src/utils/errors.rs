@@ -8,4 +8,6 @@ pub enum DexError {
     ZeroLiquidity,
     #[msg("Insufficient input amount")]
     InsufficientInputAmount,
+    #[msg("Invalid token mint")]
+    InvalidMint,
 }
