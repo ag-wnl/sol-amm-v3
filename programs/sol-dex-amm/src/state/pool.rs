@@ -14,6 +14,8 @@ pub struct Pool {
     pub liquidity: u128,
     // pda bump:
     pub bump: u8,
+
+    pub tick_spacing: u16,
 }
 
 impl Pool {

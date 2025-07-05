@@ -1,5 +1,6 @@
-use anchor_lang::prelude::*;
+use std::ops::Sub;
 
+use anchor_lang::prelude::*;
 #[account]
 pub struct TickInfo {
     pub initialized: bool,
@@ -22,37 +23,36 @@ impl TickInfo {
 }
 
 pub const TICKS_PER_ARRAY: usize = 88;
-
+// tick array:
 #[account]
 pub struct TickArray {
-    pub start_tick_index: i32,
-    pub bump: u8,
+    pub starting_tick_index: i32,
+    pub pool: Pubkey,
     pub ticks: [TickInfo; TICKS_PER_ARRAY],
 }
 
 impl TickArray {
-    pub const LEN: usize = 8
-        + 4
-        + 1
-        + 3
-        + TICKS_PER_ARRAY * TickInfo::INIT_SPACE;
+    pub const INIT_SPACE: usize = 8 + 32 + 4 +  TICKS_PER_ARRAY * TickInfo::INIT_SPACE; // disc + pool + i32 + ticks
 
-    
-        pub fn pda_seed_bytes(pool: &Pubkey, start_tick_index: i32) -> Vec<Vec<u8>> {
-            vec![
-                b"tick_array".to_vec(),
-                pool.to_bytes().to_vec(),
-                start_tick_index.to_le_bytes().to_vec(),
-            ]
-        }
+    /**
+     * formula: starting_index = floor(tick_index / (tick_spacing * TICKS_PER_ARRAY)) * (tick_spacing * TICKS_PER_ARRAY)
+     */
+    pub fn get_starting_index(tick_index: i32, tick_spacing: u16) -> i32 {
+        let array_span = tick_spacing as i32 * TICKS_PER_ARRAY as i32;
 
-        pub fn locate(t: i32, spacing: i32) -> (i32, usize) {
-        // floor_div to nearest multiple of page size
-        let ticks_per_page = (TICKS_PER_ARRAY as i32) * spacing;
-        let page = (t.div_euclid(ticks_per_page)) * ticks_per_page;
-        let offset = ((t - page) / spacing) as usize;
-        (page, offset)
-    }       
+        let i = tick_index.div_euclid(array_span);
+        i * array_span
+    }
+
+    pub fn info_for_tick(&self, tick_index: i32, tick_spacing: u16) -> &TickInfo {
+        let offset = (tick_index - self.starting_tick_index).checked_div(tick_spacing as i32).expect("tick index is not aligned to tick spacing");
+        &self.ticks[offset as usize]
+    }
+
+    pub fn info_for_tick_mutable(&mut self, tick_index: i32, tick_spacing: u16) -> &mut TickInfo {
+        let offset = (tick_index - self.starting_tick_index).checked_div(tick_spacing as i32).expect("tick index is not aligned to tick spacing");
+        &mut self.ticks[offset as usize]
+    }
 }
 
 

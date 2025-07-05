@@ -17,36 +17,38 @@ use crate::utils::errors::DexError;
  */
 
 #[derive(Accounts)]
-#[instruction(owner: Pubkey, lower_tick: i32, upper_tick: i32)]
+#[instruction(owner: Pubkey, lower_tick: i32, upper_tick: i32, tick_spacing: u16)]
 pub struct Mint<'info> {
     #[account(mut)]
     pub pool: Account<'info, Pool>,
 
+    // lower tick containing array:
     #[account(
         init_if_needed,
         payer = payer,
-        space = TickInfo::INIT_SPACE,
+        space = TickArray::INIT_SPACE,
         seeds = [
-            b"tick",
+            b"tick_array",
             pool.key().as_ref(),
-            &lower_tick.to_le_bytes(),
+            &TickArray::get_starting_index(lower_tick, tick_spacing).to_le_bytes(),
         ],
         bump
     )]
-    pub tick_lower: Account<'info, TickInfo>,
+    pub tick_array_lower: Account<'info, TickArray>,
 
+    // upper tick containing array:
     #[account(
         init_if_needed,
         payer = payer,
-        space = TickInfo::INIT_SPACE,
+        space = TickArray::INIT_SPACE,
         seeds = [
-            b"tick",
+            b"tick_array",
             pool.key().as_ref(),
-            &upper_tick.to_le_bytes(),
+            &TickArray::get_starting_index(upper_tick, tick_spacing).to_le_bytes(),
         ],
         bump
     )]
-    pub tick_upper: Account<'info, TickInfo>,
+    pub tick_array_upper: Account<'info, TickArray>,
 
     #[account(
         init_if_needed,
@@ -87,6 +89,7 @@ pub fn handler(
     owner: Pubkey,
     lower_tick: i32,
     upper_tick: i32,
+    tick_spacing: u16,
     amount: u128,
 ) -> Result<(u64, u64)> {
     require!(
@@ -100,13 +103,16 @@ pub fn handler(
     require!(amount > 0, DexError::InsufficientInputAmount);
 
     let pool = &mut ctx.accounts.pool;
-    let tick_lower = &mut ctx.accounts.tick_lower;
-    let tick_upper = &mut ctx.accounts.tick_upper;
+    {
+        let tick_lower = ctx.accounts.tick_array_lower.info_for_tick_mutable(lower_tick, tick_spacing);
+        tick_lower.update(amount);
+    }
+    {
+        let tick_upper = ctx.accounts.tick_array_upper.info_for_tick_mutable(upper_tick, tick_spacing);
+        tick_upper.update(amount);
+    }
+    
     let position = &mut ctx.accounts.position;
-
-    tick_lower.update(amount);
-    tick_upper.update(amount);
-
 
     // init a new posn
     if position.owner == Pubkey::default() {

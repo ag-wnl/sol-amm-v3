@@ -19,8 +19,9 @@ pub mod sol_dex_amm {
         ctx: Context<InitializePool>,
         sqrt_price_x96: u128,
         tick: i32,
+        tick_spacing: u16,
     ) -> Result<()>{
-        instructions::init_pool::handler(ctx, sqrt_price_x96, tick)
+        instructions::init_pool::handler(ctx, sqrt_price_x96, tick, tick_spacing)
     }
 
     pub fn mint(
@@ -28,8 +29,9 @@ pub mod sol_dex_amm {
         owner: Pubkey,
         lower_tick: i32,
         upper_tick: i32,
+        tick_spacing: u16,
         amount: u128,
     ) -> Result<(u64, u64)> {
-        instructions::mint::handler(ctx, owner, lower_tick, upper_tick, amount)
+        instructions::mint::handler(ctx, owner, lower_tick, upper_tick, tick_spacing, amount)
     }
 }

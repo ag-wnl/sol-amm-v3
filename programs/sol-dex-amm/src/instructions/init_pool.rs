@@ -25,6 +25,7 @@ pub fn handler(
     ctx: Context<InitializePool>,
     sqrt_price_x96: u128,
     tick: i32,
+    tick_spacing: u16,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     
@@ -32,7 +33,7 @@ pub fn handler(
     pool.token_1 = ctx.accounts.token_1.key();
     pool.sqrt_price_x96 = sqrt_price_x96;
     pool.tick = tick;
-    
+    pool.tick_spacing = tick_spacing;
     pool.liquidity = 0;
     pool.bump = ctx.bumps.pool;
 
